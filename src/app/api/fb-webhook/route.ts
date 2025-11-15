@@ -5,16 +5,17 @@ const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN!;
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL!;
 
-// ──────────────────────────────────────
-// Send reply via Graph API
-// ──────────────────────────────────────
-async function sendMessage(psid: string, text: string) {
-  const body = {
-    recipient: { id: psid },
-    message: { text },
-  };
+// ── DEBUG LOGGING ─────────────────────────────────────
+function log(...args: any[]) {
+  console.log("[FB WEBHOOK]", new Date().toISOString(), ...args);
+}
 
-  await fetch(
+// ── SEND MESSAGE ───────────────────────────────────────
+async function sendMessage(psid: string, text: string) {
+  const body = { recipient: { id: psid }, message: { text } };
+  log("Sending reply:", text.slice(0, 100));
+
+  const res = await fetch(
     `https://graph.facebook.com/v20.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
     {
       method: "POST",
@@ -22,23 +23,31 @@ async function sendMessage(psid: string, text: string) {
       body: JSON.stringify(body),
     }
   );
+
+  if (!res.ok) {
+    const err = await res.text();
+    log("Graph API ERROR:", res.status, err);
+    throw new Error("Graph API failed");
+  }
+  log("Reply sent successfully");
 }
 
-// ──────────────────────────────────────
-// Call your existing /api/chat (single-turn)
-// ──────────────────────────────────────
+// ── GET BOT REPLY ──────────────────────────────────────
 async function getBotReply(userText: string) {
-  const payload = {
-    messages: [{ role: "user", content: userText }],
-  };
+  const payload = { messages: [{ role: "user", content: userText }] };
 
+  log("Calling /api/chat with:", userText);
   const res = await fetch(`${SITE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok) throw new Error("Chat API error");
+  if (!res.ok) {
+    const err = await res.text();
+    log("Chat API ERROR:", res.status, err);
+    throw new Error("Chat API failed");
+  }
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -54,22 +63,23 @@ async function getBotReply(userText: string) {
         if (msg.role === "assistant" && msg.content) {
           reply += msg.content;
         }
-      } catch {
-        // ignore malformed lines
-      }
+      } catch {}
     }
   }
-  return reply.trim();
+
+  const final = reply.trim();
+  log("Bot reply:", final.slice(0, 200));
+  return final;
 }
 
-// ──────────────────────────────────────
-// GET  → Verify webhook
-// ──────────────────────────────────────
+// ── GET: Verify ────────────────────────────────────────
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const mode = url.searchParams.get("hub.mode");
   const token = url.searchParams.get("hub.verify_token");
   const challenge = url.searchParams.get("hub.challenge");
+
+  log("GET verify:", { mode, token, challenge });
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return new Response(challenge, { status: 200 });
@@ -77,11 +87,10 @@ export async function GET(req: Request) {
   return new Response("Forbidden", { status: 403 });
 }
 
-// ──────────────────────────────────────
-// POST → Receive messages
-// ──────────────────────────────────────
+// ── POST: Receive Message ───────────────────────────────
 export async function POST(req: Request) {
   const body = await req.json();
+  log("POST received:", JSON.stringify(body, null, 2));
 
   for (const entry of body.entry || []) {
     for (const event of entry.messaging || []) {
@@ -89,15 +98,14 @@ export async function POST(req: Request) {
         const psid = event.sender.id;
         const text = event.message.text;
 
+        log("User message:", { psid, text });
+
         try {
           const reply = await getBotReply(text);
-          await sendMessage(psid, reply);
-        } catch (err) {
-          console.error("Bot error:", err);
-          await sendMessage(
-            psid,
-            "Sorry, I'm having trouble right now. Our team will contact you soon! 😊"
-          );
+          if (reply) await sendMessage(psid, reply);
+        } catch (err: any) {
+          log("ERROR:", err.message);
+          await sendMessage(psid, "Sorry, I'm busy. Our team will reply soon! 😊");
         }
       }
     }
