@@ -25,6 +25,15 @@ export async function POST(req: Request) {
   const body = await req.json();
   console.log("[FB] POST received:", JSON.stringify(body, null, 2));
 
+  // 🔥 IMMEDIATELY ACKNOWLEDGE to Facebook
+  // Do NOT wait for processing
+  setImmediate(() => processWebhook(body).catch(console.error));
+
+  return NextResponse.json({ status: "ok" }); // ← Return 200 instantly
+}
+
+// Move all logic to a separate async function
+async function processWebhook(body: any) {
   for (const entry of body.entry || []) {
     for (const event of entry.messaging || []) {
       if (event.message && !event.message.is_echo) {
@@ -34,7 +43,6 @@ export async function POST(req: Request) {
         console.log("[FB] User message:", { psid, text });
 
         try {
-          // Call your chat
           const res = await fetch(`${SITE_URL}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -54,50 +62,46 @@ export async function POST(req: Request) {
             for (const line of chunk.split("\n").filter(Boolean)) {
               try {
                 const msg = JSON.parse(line);
-                if (msg.role === "assistant" && msg.content) reply += msg.content;
-              } catch {}
+                if (msg.role === "assistant" && msg.content) {
+                  reply += msg.content;
+                }
+              } catch (e) {
+                // Ignore JSON parse errors in stream
+              }
             }
           }
 
           const finalReply = reply.trim() || "Hello! How can I help? 😊";
           console.log("[FB] Bot reply:", finalReply);
 
-          // Send reply
-          const sendRes = await fetch(
-            `https://graph.facebook.com/v20.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                recipient: { id: psid },
-                message: { text: finalReply },
-              }),
-            }
-          );
-
-          if (!sendRes.ok) {
-            const err = await sendRes.text();
-            console.log("[FB] Send error:", sendRes.status, err);
-          } else {
-            console.log("[FB] Reply sent");
-          }
+          await sendMessage(psid, finalReply);
         } catch (err: any) {
           console.log("[FB] ERROR:", err.message);
-          await fetch(
-            `https://graph.facebook.com/v20.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                recipient: { id: psid },
-                message: { text: "Sorry, I'm busy. Team will reply soon! 😊" },
-              }),
-              headers: { "Content-Type": "application/json" },
-            }
-          );
+          await sendMessage(psid, "Sorry, I'm busy. Team will reply soon! 😊");
         }
       }
     }
   }
+}
 
-  return NextResponse.json({ status: "ok" });
+// Helper to send message
+async function sendMessage(psid: string, text: string) {
+  const sendRes = await fetch(
+    `https://graph.facebook.com/v20.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: psid },
+        message: { text },
+      }),
+    }
+  );
+
+  if (!sendRes.ok) {
+    const err = await sendRes.text();
+    console.log("[FB] Send error:", sendRes.status, err);
+  } else {
+    console.log("[FB] Reply sent successfully");
+  }
 }
