@@ -1,4 +1,4 @@
-// // src/app/api/chat/route.ts
+// src/app/api/chat/route.ts
 import {
   streamText,
   UIMessage,
@@ -20,19 +20,13 @@ const tools = {
     }),
     execute: async ({ query }) => {
       try {
-        // Search the vector database
         const results = await searchDocuments(query, 3, 0.5);
-
         if (results.length === 0) {
           return "No relevant information found in the knowledge base.";
         }
-
-        // Format results for the AI
-        const formattedResults = results
+        return results
           .map((r, i) => `[${i + 1}] ${r.content}`)
           .join("\n\n");
-
-        return formattedResults;
       } catch (error) {
         console.error("Search error:", error);
         return "Error searching the knowledge base.";
@@ -46,7 +40,9 @@ export type ChatMessage = UIMessage<never, UIDataTypes, ChatTools>;
 
 export async function POST(req: Request) {
   try {
+    console.log("[CHAT] Request received");
     const { messages }: { messages: ChatMessage[] } = await req.json();
+    console.log("[CHAT] Messages:", messages);
 
     const result = streamText({
       model: openai("gpt-4.1-mini"),
@@ -177,9 +173,10 @@ You represent Abroad Inquiry with authority and expertise. Guide every student w
       stopWhen: stepCountIs(2),
     });
 
+    console.log("[CHAT] Streaming response...");
     return result.toUIMessageStreamResponse();
-  } catch (error) {
-    console.error("Error streaming chat completion:", error);
+  } catch (error: any) {
+    console.error("[CHAT] ERROR:", error.message);
     return new Response("Failed to stream chat completion", { status: 500 });
   }
 }
