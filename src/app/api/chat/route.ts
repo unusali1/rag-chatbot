@@ -40,9 +40,31 @@ export type ChatMessage = UIMessage<never, UIDataTypes, ChatTools>;
 
 export async function POST(req: Request) {
   try {
-    console.log("[CHAT] Request received");
-    const { messages }: { messages: ChatMessage[] } = await req.json();
-    console.log("[CHAT] Messages:", messages);
+    console.log("[CHAT] /api/chat endpoint HIT");
+
+    const { messages: rawMessages } = await req.json();
+
+    // Normalize: Facebook → UIMessage
+    const messages: ChatMessage[] = rawMessages.map((msg: any) => {
+      const base = {
+        id: msg.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        role: msg.role,
+      };
+
+      if (msg.content) {
+        return {
+          ...base,
+          parts: [{ type: "text" as const, text: msg.content }],
+        };
+      }
+
+      return {
+        ...base,
+        parts: msg.parts || [],
+      };
+    });
+
+    console.log("[CHAT] Normalized messages:", messages.length);
 
     const result = streamText({
       model: openai("gpt-4.1-mini"),
@@ -176,7 +198,7 @@ You represent Abroad Inquiry with authority and expertise. Guide every student w
     console.log("[CHAT] Streaming response...");
     return result.toUIMessageStreamResponse();
   } catch (error: any) {
-    console.error("[CHAT] ERROR:", error.message);
-    return new Response("Failed to stream chat completion", { status: 500 });
+    console.error("[CHAT] FATAL ERROR:", error.message);
+    return new Response("AI service unavailable", { status: 500 });
   }
 }

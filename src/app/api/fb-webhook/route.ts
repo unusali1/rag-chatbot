@@ -5,7 +5,7 @@ const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN!;
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL!;
 
-console.log("[FB] Webhook loaded");
+console.log("[FB] Webhook loaded at", new Date().toISOString());
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -25,17 +25,15 @@ export async function POST(req: Request) {
   const body = await req.json();
   console.log("[FB] POST received:", JSON.stringify(body, null, 2));
 
-  // Acknowledge immediately to Facebook
+  // Acknowledge immediately
   setImmediate(() => processWebhook(body).catch(console.error));
 
   return NextResponse.json({ status: "ok" });
 }
 
-// Background processing
 async function processWebhook(body: any) {
   for (const entry of body.entry || []) {
     for (const event of entry.messaging || []) {
-      // Skip echoes, deliveries, etc.
       if (event.message?.is_echo || event.delivery || event.read) continue;
 
       if (event.message) {
@@ -59,7 +57,6 @@ async function processWebhook(body: any) {
   }
 }
 
-// Call /api/chat and parse SSE
 async function getAIResponse(userText: string): Promise<string> {
   console.log("[FB] Calling /api/chat...");
 
@@ -71,8 +68,8 @@ async function getAIResponse(userText: string): Promise<string> {
 
   if (!res.ok) {
     const err = await res.text();
-    console.log("[FB] Chat API error:", res.status, err);
-    throw new Error(`Chat API ${res.status}`);
+    console.log("[FB] Chat API FAILED:", res.status, err);
+    throw new Error(`Chat API ${res.status}: ${err}`);
   }
 
   const reader = res.body!.getReader();
@@ -106,7 +103,6 @@ async function getAIResponse(userText: string): Promise<string> {
   return reply;
 }
 
-// Send reply to Facebook
 async function sendMessage(psid: string, text: string) {
   console.log(`[FB] Sending to PSID ${psid}:`, text);
 
