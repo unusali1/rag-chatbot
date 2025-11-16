@@ -163,3 +163,4 @@ You represent Abroad Inquiry with authority and expertise. Guide every student w
     return new Response("AI service unavailable", { status: 500 });
   }
 }
+
