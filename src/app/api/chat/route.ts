@@ -19,7 +19,11 @@ const tools = {
     }),
     execute: async ({ query }) => {
       try {
-        const results = await searchDocuments(query, 3, 0.5);
+        const results = await searchDocuments(query, {
+  topK: 3,
+  minScoreThreshold: 0.5,
+});
+
         if (results.length === 0) {
           return "No relevant information found in the knowledge base.";
         }
@@ -163,4 +167,7 @@ You represent Abroad Inquiry with authority and expertise. Guide every student w
     return new Response("AI service unavailable", { status: 500 });
   }
 }
+
+
+
 
